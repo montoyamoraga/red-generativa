@@ -9,7 +9,7 @@ const DEFAULTS = {
   lineWeight:  0.8,
   lineOpacity: 0.35,
   fontFamily:  'Inter, sans-serif',
-  fontSize:    14,
+  fontSize:    10,
 };
 
 // ── Mutable state ─────────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ const DEFAULTS = {
 let state          = { ...DEFAULTS };
 let data           = null;
 let nodesSorted    = [];          // data.nodes sorted by degree desc
-let activeTemplate = 'constellation';
+let activeTemplate = 'hierarchy';
 
 // Position layers
 let basePositions  = {};          // nodeId → {x,y}  layout anchors
@@ -172,6 +172,45 @@ function layoutSpiral(W, H, ns) {
   return pos;
 }
 
+function layoutHierarchy(W, H, ns) {
+  const cx = W / 2;
+  const cy = H / 2;
+
+  const pos = {};
+
+  // Group by hierarchy
+  const levels = {};
+  data.nodes.forEach(n => {
+    const h = n.hierarchy ?? 2;
+    if (!levels[h]) levels[h] = [];
+    levels[h].push(n);
+  });
+
+  const r1 = Math.min(W, H) * 0.22;
+  const r2 = Math.min(W, H) * 0.42;
+
+  // Center (level 0)
+  (levels[0] || []).forEach(node => {
+    pos[node.id] = { x: cx, y: cy };
+  });
+
+  function placeRing(nodes, radius) {
+    if (!nodes || nodes.length === 0) return;
+    nodes.forEach((node, i) => {
+      const angle = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
+      pos[node.id] = {
+        x: cx + radius * Math.cos(angle),
+        y: cy + radius * Math.sin(angle)
+      };
+    });
+  }
+
+  placeRing(levels[1], r1);
+  placeRing(levels[2], r2);
+
+  return pos;
+}
+
 function layoutRiver(W, H, ns) {
   const mY = 62, n = ns.length;
   const pos = {};
@@ -268,6 +307,7 @@ function layoutCaos(W, H, ns) {
 // ── Template registry ─────────────────────────────────────────────────────────
 
 const TEMPLATES = [
+  { id: 'hierarchy', label: 'Jerarquía', desc: 'niveles radiales', fn: layoutHierarchy },
   { id: 'constellation', label: 'Constelación', desc: 'peso → izquierda', fn: layoutConstellation },
   { id: 'circle',        label: 'Círculo',       desc: 'anillo uniforme', fn: layoutCircle        },
   { id: 'mandala',       label: 'Mandala',       desc: 'anillos concéntricos', fn: layoutMandala  },
@@ -303,6 +343,20 @@ function currentBBox(nodeId) {
 
 // ── Scene build ───────────────────────────────────────────────────────────────
 
+function getNodeColor(level) {
+  if (level === 0) return '#2e7d32'; // green
+  if (level === 1) return '#e65100'; // orange
+  if (level === 2) return '#1565c0'; // blue
+  return '#1a1a1a';
+}
+
+function getNodeFontSize(level) {
+  if (level === 0) return state.fontSize;          // 100%
+  if (level === 1) return state.fontSize * 0.8;    // 80%
+  if (level === 2) return state.fontSize * 0.6;    // 60%
+  return state.fontSize;
+}
+
 function buildScene() {
   if (animHandle) { cancelAnimationFrame(animHandle); animHandle = null; }
   drag = null;
@@ -314,6 +368,7 @@ function buildScene() {
   // 1 — edge group (z = 0, behind everything)
   const edgeG = svgEl('g', { class: 'edges' });
   svg.appendChild(edgeG);
+  
 
   // 2 — node labels (z = 1)
   nodeElements = {};
@@ -325,7 +380,7 @@ function buildScene() {
       'font-family':       state.fontFamily,
       'font-size':         `${state.fontSize}px`,
       'font-weight':       '500',
-      fill:                '#1a1a1a',
+      fill:                getNodeColor(node.hierarchy),
       'text-anchor':       'middle',
       'dominant-baseline': 'middle',
       'data-node-id':      node.id,
@@ -428,6 +483,7 @@ function animLoop(ts) {
     el.setAttribute('x1', p1.x);  el.setAttribute('y1', p1.y);
     el.setAttribute('x2', p2.x);  el.setAttribute('y2', p2.y);
   });
+
 
   animHandle = requestAnimationFrame(animLoop);
 }
